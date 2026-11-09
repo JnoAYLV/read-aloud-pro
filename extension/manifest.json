@@ -1,0 +1,83 @@
+{
+  "manifest_version": 3,
+  "name": "Read Aloud Pro",
+  "version": "2.0.0",
+  "description": "Reads text aloud with word-by-word highlighting, flags custom word groups, keeps a dated memory of emails, docs and pages, and uses Claude (Claude Code or API) to write Outlook emails, Word documents and Teams/Slack messages.",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "contextMenus",
+    "activeTab",
+    "scripting",
+    "downloads",
+    "downloads.open",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "https://api.anthropic.com/*",
+    "https://api.elevenlabs.io/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Read Aloud Pro (click to show the panel)",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "defaults.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "read-selection": {
+      "suggested_key": {
+        "default": "Alt+Shift+R"
+      },
+      "description": "Read the highlighted text"
+    },
+    "read-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+P"
+      },
+      "description": "Read the whole page"
+    },
+    "pause-resume": {
+      "suggested_key": {
+        "default": "Alt+Shift+Space"
+      },
+      "description": "Pause or resume reading"
+    },
+    "scan": {
+      "description": "Find highlight words on this page"
+    },
+    "voice": {
+      "suggested_key": {
+        "default": "Alt+Shift+V"
+      },
+      "description": "Voice commands on/off"
+    }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuQuwVs3UyDJpaIdFYfc+D4W+wUiQgoIg3nehJAS3znB+f+gMjaKU/aqr+7dsHyzelVqASS4m0vojtx+vceen++gm2ADq5P01maimzaTH4veL8H82C4RxKrQCqB6XcBHbsTCQHN0MnPzwEzyMGNYan90AER8FqPV2HU1aPWifmwl8iB+Z+7CTnWgqZ2z6Gl+j2b6wjo/5JEbBZl/Sh3mgZkK5EycK1nc0CzqeXmHcHNLmwzuIV86QUvCCZ1tnbkkv6l7nvX65gglqWsJ2uVkIffy0nAEHld/SwDer1/1TRJwhu0p6gElXbAggd0dcqVdHoFhlYdavCjpVqZwYmGChfQIDAQAB"
+}

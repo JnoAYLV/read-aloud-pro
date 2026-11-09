@@ -1,0 +1,53 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Read Aloud Pro – test page</title>
+<link rel="stylesheet" href="../content.css">
+<style>body{font-family:Segoe UI,sans-serif;max-width:760px;margin:30px auto;line-height:1.6;padding:0 16px}</style>
+<script>
+// Stand-in for the chrome.* APIs so the content script runs on a plain page.
+// Claude replies are simulated: nothing is sent anywhere.
+(() => {
+  const store = { local: {} }, listeners = [];
+  const local = {
+    get: async d => { if (typeof d === 'string') return { [d]: store.local[d] }; const o = { ...(d || {}) }; for (const k in store.local) if (!d || k in o || typeof d !== 'object') o[k] = store.local[k]; return o; },
+    set: async o => { const ch = {}; for (const k in o) { ch[k] = { newValue: structuredClone(o[k]) }; store.local[k] = structuredClone(o[k]); } listeners.forEach(f => f(ch, 'local')); },
+    remove: async k => { delete store.local[k]; }
+  };
+  window.__sent = []; window.__store = store;
+  window.__nextReply = null;
+  window.chrome = {
+    storage: { local, sync: local, onChanged: { addListener: f => listeners.push(f) } },
+    runtime: {
+      id: 'test', getURL: p => '../' + p,
+      sendMessage: async m => {
+        window.__sent.push(m);
+        if (m.type === 'claude') { await new Promise(r => setTimeout(r, 200)); return window.__nextReply || { text: 'Simulated reply.', format: null, notes: [] }; }
+        return { ok: true, where: 'Downloads\\Read Aloud Notes\\test.md' };
+      },
+      onMessage: { addListener() {} }
+    }
+  };
+  const p = { ops: null };
+  store.local.settings = { claudeMode: 'code' };
+})();
+</script>
+<script src="../defaults.js"></script>
+<script>
+  const s = RAP_mergeSettings({ claudeMode: 'code' });
+  s.profiles.ops.categories[0].terms = 'Sam Taylor, Sam';
+  s.profiles.ops.categories.push({ id: 'cgear', label: 'Equipment', color: '#00c7be', enabled: true, terms: 'tug, dolly, ULD*' });
+  __store.local.settings = s;
+  __store.local.collection = [{ id: 'old1', title: 'KMSP staffing plan (yesterday)', url: '', kind: 'page', text: 'Staffing plan text', added: Date.now() - 864e5 }];
+</script>
+<script src="../content.js"></script>
+</head>
+<body>
+<main>
+<h1>KMSP shift report – Nov 7</h1>
+<p>Hi Sam Taylor, here is the overnight summary for the gateway. Overall the night went well, but there are a few things you need to see before the 9 AM call.</p>
+<h2>Safety</h2>
+<p>At 02:14 a tug driver reported a <b>near miss</b> with a ULD dolly on the north ramp. No one was hurt. A second <i>incident</i> involved minor AC damage to the cargo door seal on the 03:40 turn; maintenance has the write-up. One team member got first aid for a small laceration from a strap.</p>
+<h2>Operations</h2>
+<p>The 04:10 departure was late by 22 minutes. Root cause: we were short staffed on the build team after three no shows, so two positions were not covered. This counts as a controllable failure.<br>We also had 14 missorts on the second wave, mostly from a label that was not followed by the new hires.</p>
+<p>Alex asked that we review the call out process this week. Please confirm by EOD Monday. Everything else ran on plan, and the morning crew started on time.</p>
+</main>
+</body></html>

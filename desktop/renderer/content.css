@@ -1,0 +1,7 @@
+/* Highlights are drawn with the CSS Custom Highlight API: no page HTML is changed. */
+::highlight(rap-sentence) { background-color: rgba(255, 221, 0, 0.22); }
+::highlight(rap-word)     { background-color: #ffd400; color: #000; }
+::highlight(rap-name)     { background-color: rgba(155, 89, 255, 0.35); }
+::highlight(rap-safety)   { background-color: rgba(255, 59, 48, 0.35); }
+::highlight(rap-ctrl)     { background-color: rgba(255, 149, 0, 0.40); }
+::highlight(rap-flash)    { background-color: #00c2ff; color: #000; }

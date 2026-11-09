@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Read Aloud Pro – Settings</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' data: blob:; img-src 'self' data:">
+<style>
+  body{font-family:Segoe UI,system-ui,sans-serif;max-width:820px;margin:24px auto;padding:0 20px;color:#1d1f24;background:#f6f7f9}
+  h1{font-size:22px;margin-bottom:8px} h2{font-size:16px;margin:26px 0 8px;border-bottom:1px solid #ddd;padding-bottom:6px}
+  nav{display:flex;gap:4px;border-bottom:2px solid #dde;margin-bottom:10px}
+  nav button{border:0;background:none;padding:10px 14px;font-size:14px;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
+  nav button.on{border-bottom-color:#1d1f24;font-weight:600}
+  section[hidden]{display:none}
+  label.f{display:block;font-weight:600;margin:12px 0 4px}
+  .hint{font-weight:400;color:#667;font-size:12.5px}
+  input[type=text],input[type=password],textarea,select{box-sizing:border-box;padding:7px;border:1px solid #ccd;border-radius:6px;font-size:14px;font-family:inherit}
+  textarea{width:100%;min-height:56px}
+  .chk{font-weight:400;display:flex;gap:8px;align-items:center;margin:8px 0}
+  button{padding:7px 12px;border-radius:6px;border:1px solid #bbb;background:#fff;cursor:pointer;font-size:13.5px}
+  button.pri{background:#1d1f24;color:#fff;border-color:#1d1f24}
+  button.danger{color:#b00}
+  .row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+  .msg{font-size:13px;color:#2a7}
+  .box{background:#fff;border:1px solid #e2e4e8;border-radius:8px;padding:12px 14px;font-size:13.5px;line-height:1.5}
+  .cat{background:#fff;border:1px solid #e2e4e8;border-radius:8px;padding:10px 12px;margin:10px 0}
+  .cat .top{display:flex;gap:8px;align-items:center}
+  .cat .top input[type=text]{flex:1;font-weight:600}
+  input[type=color]{width:42px;height:32px;border:1px solid #ccd;border-radius:6px;padding:2px;background:#fff;cursor:pointer}
+  table{border-collapse:collapse;width:100%;background:#fff;border:1px solid #e2e4e8;border-radius:8px;font-size:13.5px}
+  td,th{padding:7px 9px;border-bottom:1px solid #eee;text-align:left;vertical-align:middle}
+  th{font-size:12px;color:#667;font-weight:600}
+  .mode{background:#fff;border:1px solid #e2e4e8;border-radius:8px;padding:10px 12px;margin:8px 0}
+  .mode.on{border-color:#1d1f24}
+  code{background:#eef;padding:1px 5px;border-radius:4px}
+  dialog{max-width:760px;width:90vw;border:1px solid #ccd;border-radius:10px}
+  dialog pre{white-space:pre-wrap;max-height:60vh;overflow:auto;font-size:13px}
+  dialog textarea{min-height:50vh;font-family:Consolas,monospace;font-size:13px}
+</style>
+</head>
+<body>
+<h1>🔊 Read Aloud Pro – Settings</h1>
+<nav><button data-s="highlight" class="on">Highlighting</button><button data-s="reading">Reading & notes</button><button data-s="claude">Claude & library</button></nav>
+
+<section id="s-highlight">
+  <div class="row">
+    <label>Profile: <select id="profSel"></select></label>
+    <button id="profNew">New</button><button id="profDup">Duplicate</button><button id="profRen">Rename</button><button id="profDel" class="danger">Delete</button>
+  </div>
+  <p class="hint">A profile is a saved set of word groups, each with its own colour. Switch profiles from the panel's Find tab.
+  In a term list, separate terms with commas. A * at the end matches any ending (injur* = injury, injured). Plurals match automatically.</p>
+  <div id="cats"></div>
+  <div class="row"><button id="addCat">+ Add word group</button><button id="resetProf">Reset this profile to the default groups</button></div>
+  <label class="chk"><input type="checkbox" id="autoScan"> Scan every page automatically (off by default)</label>
+  <div class="row"><button class="pri" id="saveHL">Save</button><span class="msg" id="msgHL"></span></div>
+</section>
+
+<section id="s-reading" hidden>
+  <h2 style="margin-top:6px">Voice</h2>
+  <div class="mode" data-e="kokoro"><label class="chk"><input type="radio" name="engine" value="kokoro"> <b>Natural voices on this PC (free, recommended)</b>: Kokoro, runs offline</label>
+    <div class="row">Voice: <select id="kokoroVoice" style="min-width:260px"><option>Loading…</option></select><button id="kTest">Play a test sentence</button><span class="msg" id="msgK"></span></div>
+    <div class="hint">28 voices, free, private (nothing leaves this PC). The speaker below applies to these voices.</div></div>
+  <div class="mode" data-e="browser"><label class="chk"><input type="radio" name="engine" value="browser"> <b>Windows voices (free, robotic)</b>: pick one in the panel</label>
+    <div class="hint">Windows' own voices (David, Mark, Zira). They sound robotic but highlight each word exactly. They always play on the Windows default speaker.</div></div>
+  <div class="mode" data-e="elevenlabs"><label class="chk"><input type="radio" name="engine" value="elevenlabs"> <b>ElevenLabs</b>: uses characters from your ElevenLabs plan (not free beyond its monthly allowance)</label>
+    <div class="row"><input type="password" id="elKey" placeholder="ElevenLabs API key" autocomplete="off" style="flex:1"><button id="elSaveKey">Save key</button><button id="elRemoveKey">Remove</button></div>
+    <div class="row">Voice: <select id="elVoice" style="min-width:260px"><option value="">Save a key, then Load voices</option></select><button id="elLoad">Load voices</button>
+      Model: <select id="elModel"><option value="eleven_flash_v2_5">Flash v2.5 (half the characters, fast)</option><option value="eleven_multilingual_v2">Multilingual v2 (richest)</option></select></div>
+    <div class="row"><button id="elTest">Play a test sentence</button><span class="msg" id="msgEl"></span></div>
+    <div class="hint">Every sentence read uses characters (about 1 per letter, or half that on Flash). A 500-word email is about 3,000 characters.
+      Use your own voices or ElevenLabs library voices. Do not clone anyone's voice without their consent.</div></div>
+  <h2>Microphone (voice commands)</h2>
+  <div class="row"><select id="micSel" style="min-width:320px"><option value="">Windows default microphone</option></select><button id="micTest">Test: speak for 3 seconds</button></div>
+  <div class="row"><div style="flex:1;max-width:420px;height:12px;background:#ddd;border-radius:6px;overflow:hidden"><div id="micBar" style="height:100%;width:0;background:#2a9d4b"></div></div><span class="msg" id="msgMic"></span></div>
+  <div class="hint">If the bar does not move when you talk, pick another microphone. Virtual mics (SteelSeries Sonar, Voicemeeter) only work when that program is passing your real mic through.</div>
+  <h2>Speaker</h2>
+  <div class="row"><select id="speaker" style="min-width:320px"><option value="">Windows default speaker</option></select><button id="listSpk">List my speakers</button><span class="msg" id="msgSpk"></span></div>
+  <div class="hint">The natural voices play on the speaker chosen here. Windows voices always use the Windows default speaker.</div>
+  <h2>Reading</h2>
+  <label class="chk"><input type="checkbox" id="clickToRead"> Alt+click a word to start reading from there</label>
+  <label class="chk"><input type="checkbox" id="followScroll"> Scroll the page to follow the voice</label>
+  <h2>Where saved notes, emails and documents go</h2>
+  <label class="chk"><input type="radio" name="target" value="downloads"> A folder inside your Downloads folder:</label>
+  <input type="text" id="saveFolder" style="width:100%" placeholder="Read Aloud Notes">
+  <label class="chk" style="margin-top:12px"><input type="radio" name="target" value="folder"> Any folder on this computer, e.g. Google Drive or OneDrive:</label>
+  <div class="row"><input type="text" id="savePath" style="flex:1" placeholder="C:\Users\you\My Drive\Read Aloud">
+    <button id="useDrive">Use Google Drive</button><button id="testSave">Test save</button></div>
+  <div class="hint">Google Drive for desktop shows Drive as a normal folder (usually C:\Users\&lt;you&gt;\My Drive or G:\My Drive). Files saved there upload on their own.</div>
+  <span class="msg" id="msgSave"></span>
+  <h2>Shortcut keys</h2>
+  <div class="hint">These work in every program while Read Aloud Pro runs. To change one, click its box and press the keys you want (Ctrl or Alt plus a key). You are warned if Windows or another program already uses them. In the reader, Esc stops and Alt+click starts reading at a word.</div>
+  <table id="hkTable"><tbody></tbody></table>
+  <div class="row"><button class="pri" id="hkSave">Save shortcut keys</button><button id="hkReset">Back to the defaults</button><span class="msg" id="msgHk"></span></div>
+  <div class="row"><button class="pri" id="saveRD">Save</button><span class="msg" id="msgRD"></span></div>
+</section>
+
+<section id="s-claude" hidden>
+  <h2 style="margin-top:6px">How to connect Claude</h2>
+  <div class="mode" data-m="off"><label class="chk"><input type="radio" name="mode" value="off"> <b>Off</b> (default)</label></div>
+  <div class="mode" data-m="code">
+    <label class="chk"><input type="radio" name="mode" value="code"> <b>Claude Code on this computer</b>: uses your existing Claude Code login, no API key</label>
+    <div class="hint">Needs Claude Code installed and signed in on this PC (check: open a terminal, type <code>claude</code>; if it says the login expired, type <code>/login</code>). Usage counts against your Claude plan.</div>
+    <div class="row">Model: <select id="codeModel"><option value="haiku">Haiku (fastest)</option><option value="sonnet">Sonnet (recommended)</option><option value="opus">Opus (best)</option></select>
+      <button id="testCode">Test connection</button><span class="msg" id="msgCode"></span></div>
+    
+  </div>
+  <div class="mode" data-m="api">
+    <label class="chk"><input type="radio" name="mode" value="api"> <b>Anthropic API key</b>: billed per use, separate from a Claude subscription</label>
+    <div class="row"><input type="password" id="apiKey" placeholder="sk-ant-…" autocomplete="off" style="flex:1">
+      <button id="saveKey">Save key</button><button id="removeKey">Remove</button></div>
+    <div class="row">Model: <select id="model"><option value="claude-haiku-5-5">Claude Haiku 5.5 (cheapest)</option><option value="claude-sonnet-5-5">Claude Sonnet 5.5 (recommended)</option><option value="claude-opus-5-5">Claude Opus 5.5 (best)</option></select>
+      <button id="testKey">Test key</button><span class="msg" id="msgKey"></span></div>
+    <div class="hint">The key is stored only on this computer.</div>
+  </div>
+  <div class="hint" style="margin-top:6px">The sources you choose and the enabled library documents are sent to Claude. Check your company's policy for work material. Emails are drafts only. This app cannot send email: Outlook drafts open for you to review and send yourself.</div>
+
+  <h2>Obsidian vault (optional)</h2>
+  <label class="chk"><input type="checkbox" id="vaultOn"> Search my Obsidian vault for related notes when Claude writes, researches or answers</label>
+  <div class="row"><input type="text" id="vaultPath" placeholder="Vault folder, e.g. C:\Users\you\Documents\Vaults\Work" style="flex:1;min-width:320px"><button id="vaultPick">Choose folder…</button></div>
+  <div class="row">Skip these folders: <input type="text" id="vaultExclude" style="flex:1;min-width:220px" placeholder="Templates, Attachments"><button id="vaultSave">Save</button><button id="vaultTest">Test</button><span class="msg" id="msgVault"></span></div>
+  <div class="hint">Notes stay on this PC; only the few that match a request (up to about 5,000 characters each) are sent to Claude with it, and the answer lists which ones were used. Summaries never use the vault. Pick the vault that fits this work, and leave out vaults or folders with private notes (health, money, family).</div>
+  <h2>Reference library</h2>
+  <p class="hint">Claude reads every switched-on document before it writes. Upload your current standard work and anything else it should follow or reference.
+  Files: .docx, .pdf, .txt, .md, .csv, .html. Large libraries cost more per request. Keep it to what matters.</p>
+  <table><thead><tr><th>On</th><th>Document</th><th>Type</th><th>Size</th><th></th></tr></thead><tbody id="kbBody"></tbody></table>
+  <div class="row"><span id="kbTotal" class="hint"></span></div>
+  <div class="row">
+    <label>Add as <select id="upTag"><option value="standard-work">Standard work</option><option value="reference" selected>Reference</option></select></label>
+    <input type="file" id="upFile" multiple accept=".docx,.pdf,.txt,.md,.csv,.html,.htm">
+    <button id="pasteDoc">Paste text as a document</button>
+    <span class="msg" id="msgKB"></span>
+  </div>
+</section>
+
+<dialog id="dlg"><h3 id="dlgTitle"></h3><pre id="dlgPre"></pre><textarea id="dlgEdit" hidden></textarea><input type="text" id="dlgName" placeholder="Document title" hidden style="width:100%;margin-bottom:8px">
+  <div class="row"><button id="dlgSave" class="pri" hidden>Save</button><button id="dlgClose">Close</button></div></dialog>
+
+<script src="shim.js"></script>
+<script src="defaults.js"></script>
+<script src="tour.js"></script>
+<script src="docx.js"></script>
+<script src="options.js"></script>
+<script src="settings-desktop.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Read Aloud Pro</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data: blob:; connect-src 'self'">
+<link rel="stylesheet" href="content.css">
+<link rel="stylesheet" href="app.css">
+</head><body>
+<header id="bar">
+  <div class="brand">🔊 Read Aloud Pro</div>
+  <button id="openFile" title="Open a Word document, PDF, email file or text file">Open file</button>
+  <button id="pasteText" title="Read whatever is on the clipboard">Paste</button>
+  <button id="readScreen" title="Read the text on your screen (Ctrl+Alt+O)">Read screen</button>
+  <span class="hint">Anywhere on your PC: highlight text, then <b>Ctrl+Alt+R</b> to read · <b>Ctrl+Alt+M</b> add to memory · <b>Ctrl+Alt+O</b> read screen · <b>Ctrl+Alt+V</b> talk</span>
+</header>
+<main id="doc">
+  <h1>Welcome to Read Aloud Pro</h1>
+  <p>Highlight text in any program, such as an Outlook email, a Word document, a PDF or a web page, and press Ctrl+Alt+R. It appears here and is read aloud with each word highlighted.</p>
+  <p>Press Ctrl+Alt+O to read the text on your screen, even where it can't be highlighted. Use Open file for Word documents and PDFs.</p>
+  <p>The panel on the right has the voice, speed and speaker, the Find tab for your highlight words, and the Claude tab for memory, summaries, emails and documents.</p>
+</main>
+<div id="status"></div>
+<script src="shim.js"></script>
+<script src="defaults.js"></script>
+<script src="tour.js"></script>
+<script src="docx.js"></script>
+<script src="content.js"></script>
+<script src="app.js"></script>
+</body></html>

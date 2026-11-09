@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><base href="../"><title>Settings test</title>
+<script>
+// Loads the real options.html with a stand-in chrome.* API (test only; nothing leaves the page).
+(() => {
+  const store = { local: {} }, listeners = [];
+  const local = {
+    get: async d => { if (typeof d === 'string') return { [d]: store.local[d] }; const o = { ...(d || {}) }; for (const k in store.local) o[k] = store.local[k]; return o; },
+    set: async o => { for (const k in o) store.local[k] = structuredClone(o[k]); listeners.forEach(f => f(o, 'local')); },
+    remove: async k => { delete store.local[k]; }
+  };
+  window.__store = store; window.__sent = [];
+  window.chrome = { storage: { local, onChanged: { addListener: f => listeners.push(f) } },
+    runtime: { id: 'enkleccggcppejcojjpimfldbmcfalmn', getURL: p => p, sendMessage: async m => { __sent.push(m); return { ok: true, text: 'OK', where: 'test' }; } } };
+})();
+</script>
+</head><body>
+<script>
+fetch('options.html').then(r => r.text()).then(html => {
+  const body = html.slice(html.indexOf('<body>') + 6, html.indexOf('<script src="defaults.js">'));
+  const head = html.match(/<style>[\s\S]*<\/style>/)[0];
+  document.head.insertAdjacentHTML('beforeend', head);
+  document.body.insertAdjacentHTML('beforeend', body);
+  for (const src of ['defaults.js', 'docx.js', 'options.js']) { const s = document.createElement('script'); s.src = src; s.async = false; document.body.appendChild(s); }
+});
+</script>
+</body></html>
