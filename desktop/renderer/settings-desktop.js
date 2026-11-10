@@ -105,7 +105,7 @@
     [document.getElementById('profDel'), 'New makes a profile with just your name. Duplicate copies the current profile so you can adjust it. Rename changes its name. Delete removes it (at least one must remain).', MM.find],
     [document.getElementById('addCat'), 'Adds a word group. Give it a name, a colour and its terms separated by commas. Plurals match automatically; a * at the end matches any ending (injur* = injury, injured). Untick a group to switch it off without deleting it. The first group is your name.', MM.find],
     [document.getElementById('resetProf'), 'Puts this profile back to the original groups: Your name, Safety, Controllable failures, Actions & deadlines. Your name is kept.', MM.find],
-    [lab('autoScan'), 'When on, every new text in the reader is coloured and counted as soon as it loads. When off (the default), click Scan this page in the Find tab.', MM.find],
+    [lab('autoScan'), 'When on (the default), every new text is coloured and counted as soon as it loads, in the reader and, for Ctrl+Alt+R, in the original program too. When off, click Scan this page in the Find tab.', MM.find],
     [document.getElementById('saveHL'), 'Profiles, groups and colours take effect after Save.', MM.find],
     // Reading & notes
     [radio('engine', 'kokoro'), 'Natural voices that run on this PC: free, private (nothing leaves the PC) and work offline after a one-time download. The highlight follows each sentence and can be a word ahead or behind inside a sentence.', MM.reading],
@@ -135,7 +135,16 @@
   ];
   for (const [el, text, sec] of INFO) self.RAP_info?.(el, text, sec, openMan);
 
-  // Updates: version, automatic on/off, check now. New versions come from the app's GitHub releases.
+  // Highlight inside the original program (on unless switched off).
+  { const fs0 = document.getElementById('followScroll')?.closest('label');
+    if (fs0) {
+      const lab = document.createElement('label'); lab.className = 'chk';
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.id = 'sourceHighlight'; cb.checked = s.sourceHighlight !== false;
+      lab.append(cb, ' Also highlight inside the program you are reading from (Outlook, Word, browsers)');
+      fs0.after(lab);
+      cb.onchange = () => RAP_setSettings({ sourceHighlight: cb.checked });
+      self.RAP_info?.(lab, 'When you read with Ctrl+Alt+R, the sentence and word being spoken are also highlighted right on top of the original email, document or web page, and it scrolls to follow. Nothing in your document is changed or selected. It shows only while that program is in front, and the reader stays in the background. Works in programs that share word positions with Windows (Outlook, Word, Edge, Chrome, Notepad); elsewhere the highlight stays in the reader.', MM.reading, openMan);
+    } }  // Updates: version, automatic on/off, check now. New versions come from the app's GitHub releases.
   const ui0 = await chrome.runtime.sendMessage({ type: 'update-info' });
   if (ui0?.version) {
     const sec = document.getElementById('s-reading');

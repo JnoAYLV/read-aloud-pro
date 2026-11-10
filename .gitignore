@@ -5,3 +5,6 @@ desktop/dist/
 # local only
 .claude/
 *.log
+
+# shared privately (names the people involved)
+HOW-WE-BUILT-IT.md

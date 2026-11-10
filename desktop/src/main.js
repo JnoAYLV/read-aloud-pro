@@ -27,7 +27,7 @@ function createReader(show = true) {
   if (reader && !reader.isDestroyed()) { if (show) { reader.show(); reader.focus(); } return reader; }
   reader = new BrowserWindow({
     width: 1180, height: 820, minWidth: 760, minHeight: 500, show, icon: ICON, title: 'Read Aloud Pro', backgroundColor: '#f6f7f9',
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false }
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false, backgroundThrottling: false }
   });
   reader.setMenuBarVisibility(false);
   reader.loadFile(path.join(RENDERER, 'index.html'));
@@ -40,6 +40,7 @@ function openSettings(section) {
   settingsWin.setMenuBarVisibility(false);
   settingsWin.loadFile(path.join(RENDERER, 'settings.html'), { hash: section || '' });
 }
+const toReaderQuiet = (channel, payload) => { const w = createReader(false); const go = () => w.webContents.send(channel, payload); w.webContents.isLoading() ? w.webContents.once('did-finish-load', go) : go(); };
 const toReader = (channel, payload) => { const w = createReader(true); const go = () => w.webContents.send(channel, payload); w.webContents.isLoading() ? w.webContents.once('did-finish-load', go) : go(); };
 function tell(body) { notify(body); toReader('status', body); }
 function notify(body) { try { new Notification({ title: 'Read Aloud Pro', body, icon: ICON, silent: true }).show(); } catch {} }
@@ -90,7 +91,7 @@ async function grabSelection() {
   try { saved.length ? await clipboard.write(saved.map(o => new ClipboardItem(o))) : clipboard.clear(); }
   catch (e) { grabLog({ step: 'restore-failed', msg: e.message }); }
   grabLog({ step: 'done', chars: text.length });
-  return { text, title: fg.title };
+  return { text, title: fg.title, hwnd: fg.hwnd };
 }
 const cleanTitle = t => String(t || '').replace(/\s+-\s+(Outlook|Word|Excel|PowerPoint|Adobe Acrobat.*|Google Chrome|Microsoft​? Edge|Notepad)\s*$/i, '').trim() || 'Untitled';
 
@@ -99,7 +100,11 @@ async function readFromApp() {
   if (g.inApp) return toReader('command', { type: 'read-selection' });
   grabLog({ step: 'read', chars: g.text.length });
   if (!g.text.trim()) { tell('Nothing highlighted came through. Highlight some text, keep that window in front, then press Ctrl+Alt+R. Or press Ctrl+Alt+O to read the screen.'); return; }
-  toReader('load-text', { title: cleanTitle(g.title), text: g.text, from: g.title, autoRead: true });
+  // Highlight in the original program when it shares word positions (Outlook, Word, browsers, Notepad...).
+  // Then the reader stays where it is, so the program you are reading stays in front.
+  const linked = (store.get('settings') || {}).sourceHighlight !== false && g.hwnd ? await src.attach(g.hwnd) : false;
+  grabLog({ step: 'source-highlight', linked });
+  (linked ? toReaderQuiet : toReader)('load-text', { title: cleanTitle(g.title), text: g.text, from: g.title, autoRead: true, linked });
 }
 async function memoryFromApp() {
   let g; try { g = await grabSelection(); } catch (e) { grabLog({ step: 'error', msg: String(e && e.stack || e).slice(0, 600) }); tell('Could not copy the highlighted text: ' + (e && e.message)); return; }
@@ -154,6 +159,220 @@ async function readScreen(sourceId, label) {
   finally { fs.rmSync(png, { force: true }); }
 }
 
+// ------------------------------------------------------------------ highlighting inside the original program
+// Two ways to know where each word is on screen:
+//  - "program": Windows UI Automation (uia.ps1) asks the program itself. Exact and instant in Outlook,
+//    Word, Notepad and other desktop programs.
+//  - "screen": read the screen (ocrsvc.ps1, Windows text recognition) and line the screen words up with
+//    the sentence being read. Used for Chrome, Edge, Firefox and other browser-based programs (their own
+//    positions are wrong inside scrolling boxes such as web email), and for any program that does not
+//    report positions at all (PDF readers, images).
+// A transparent, click-through window draws a soft band on the sentence, a box on the word and the name /
+// word-group colours. It shows only while that program is in front, is excluded from screen pictures, and
+// never touches the document (in "program" mode it may scroll it into view).
+const src = (() => {
+  function helper(file) {
+    let ps = null, buf = '', waiters = [];
+    const start = () => {
+      if (ps) return;
+      ps = require('child_process').spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(core.SCRIPTS, file)], { windowsHide: true });
+      buf = ''; waiters = [() => {}];                          // the helper's "ready" line
+      ps.stdout.on('data', d => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (l) { const w = waiters.shift(); try { w && w(JSON.parse(l)); } catch { w && w({ ok: false }); } } } });
+      ps.on('exit', () => { ps = null; for (const w of waiters) w({ ok: false, why: 'helper stopped' }); waiters = []; });
+    };
+    const ask = (o, ms = 4000) => new Promise(res => {
+      start(); let done = false; const t = setTimeout(() => { if (!done) { done = true; res({ ok: false, why: 'timeout' }); } }, ms);
+      waiters.push(r => { if (!done) { done = true; clearTimeout(t); res(r); } });
+      ps.stdin.write(JSON.stringify(o) + '\n');
+    });
+    return { ask, running: () => !!ps };
+  }
+  const uia = helper('uia.ps1'), ocr = helper('ocrsvc.ps1');
+  let mode = null, hwnd = null, hwndRaw = null, overlay = null, timer = null, active = false, busy = false;
+  let sentBoxes = [], wordBoxes = [], termBoxes = [], hasTerms = false;
+  let ticks = 0, lastSig = '', moving = false, still = 0, movingSince = 0;       // movement watching
+  let region = null, words = [], curTokens = null, curMap = null, curK = -1, termItems = [], lastY = null; // screen mode
+  const diag = { n: 0 };
+  const addr = h => { try { return String(require('koffi').address(h)); } catch { return null; } };
+  const front = () => hwnd && addr(win.foreground().hwnd) === hwnd;
+  const hideNow = () => { if (overlay && !overlay.isDestroyed() && overlay.isVisible()) overlay.hide(); };
+
+  function ensureOverlay() {
+    if (overlay && !overlay.isDestroyed()) return overlay;
+    overlay = new BrowserWindow({ show: false, frame: false, transparent: true, resizable: false, movable: false, focusable: false, skipTaskbar: true,
+      hasShadow: false, alwaysOnTop: true, backgroundColor: '#00000000', webPreferences: { contextIsolation: true, sandbox: true } });
+    overlay.setAlwaysOnTop(true, 'screen-saver'); overlay.setIgnoreMouseEvents(true);
+    overlay.setContentProtection(true);         // invisible to screen pictures, so screen reading never sees our own highlight
+    overlay.loadFile(path.join(RENDERER, 'overlay.html'));
+    return overlay;
+  }
+  function draw() {
+    const all = [...sentBoxes, ...wordBoxes, ...termBoxes.flatMap(t => t.boxes)];
+    if (!active || !all.length || !front() || moving) { hideNow(); return; }
+    const dip = b => screen.screenToDipRect(null, { x: b[0], y: b[1], width: b[2], height: b[3] });
+    const S = sentBoxes.map(dip), W = wordBoxes.map(dip), T = termBoxes.map(t => ({ c: t.c, r: t.boxes.map(dip) })), A = [...S, ...W, ...T.flatMap(t => t.r)];
+    const x = Math.min(...A.map(r => r.x)) - 4, y = Math.min(...A.map(r => r.y)) - 4;
+    const bounds = { x: Math.floor(x), y: Math.floor(y), width: Math.ceil(Math.max(...A.map(r => r.x + r.width)) - x + 4), height: Math.ceil(Math.max(...A.map(r => r.y + r.height)) - y + 4) };
+    const rel = r => ({ x: r.x - bounds.x, y: r.y - bounds.y, w: r.width, h: r.height });
+    const o = ensureOverlay();
+    const send = () => o.webContents.executeJavaScript(`window.rapDraw(${JSON.stringify({ s: S.map(rel), w: W.map(rel), t: T.map(t => ({ c: t.c, r: t.r.map(rel) })) })})`).catch(() => {});
+    o.setBounds(bounds);
+    if (diag.n < 400 && process.argv.includes('--rap-test')) {   // test mode only: userData\highlight-diag.txt, positions only, never text
+      diag.n++; const got = o.getBounds();
+      try { fs.appendFileSync(path.join(app.getPath('userData'), 'highlight-diag.txt'), JSON.stringify({ t: new Date().toISOString().slice(11, 23), mode, asked: [bounds.x, bounds.y, bounds.width, bounds.height], got: [got.x, got.y, got.width, got.height], sent: sentBoxes.slice(0, 3), word: wordBoxes, terms: termBoxes.length }) + '\n'); } catch {}
+    }
+    o.webContents.isLoading() ? o.webContents.once('did-finish-load', send) : send();
+    if (!o.isVisible()) o.showInactive();
+  }
+
+  // ---- screen mode: line the spoken words up with the words read from the screen
+  const norm = s => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  function lev(a, b) {
+    const d = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) { let prev = d[0]; d[0] = i; for (let j = 1; j <= b.length; j++) { const t = d[j]; d[j] = Math.min(d[j] + 1, d[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = t; } }
+    return d[b.length];
+  }
+  // Screen text recognition makes small mistakes ("brlefings"): allow 1 wrong letter in 4+ letter words, 2 in 8+.
+  const same = (a, b) => !!a && !!b && (a === b || (Math.max(a.length, b.length) >= 4 && lev(a, b) <= (Math.max(a.length, b.length) >= 8 ? 2 : 1)));
+  function align(tokens) {
+    const O = words.map(w => norm(w.t)), S = tokens.map((t, j) => ({ t, j })).filter(x => x.t);
+    if (!S.length || !O.length) return null;
+    let best = null;
+    for (let i = 0; i < O.length; i++) for (let off = 0; off < Math.min(3, S.length); off++) {
+      if (!same(O[i], S[off].t)) continue;
+      const map = { [S[off].j]: i }; let p = i + 1, score = 1;
+      for (let q = off + 1; q < S.length; q++) for (let k = p; k < Math.min(O.length, p + 3); k++) if (same(O[k], S[q].t)) { map[S[q].j] = k; p = k + 1; score++; break; }
+      // Repeated wording: prefer the copy at or just below the previous sentence.
+      const y = words[i].b[1], away = lastY == null ? 0 : (y < lastY - 8 ? 1e6 + lastY - y : y - lastY);
+      if (!best || score > best.score || (score === best.score && away < best.away)) best = { map, score, away };
+    }
+    const need = S.length <= 2 ? S.length : Math.max(2, Math.ceil(S.length * 0.5));
+    return best && best.score >= need ? best.map : null;
+  }
+  function band(map) {                         // one box per screen line the sentence covers
+    const lines = {};
+    for (const idx of Object.values(map)) { const w = words[idx]; (lines[w.l] = lines[w.l] || []).push(w.b); }
+    return Object.values(lines).map(bs => { const x1 = Math.min(...bs.map(b => b[0])), y1 = Math.min(...bs.map(b => b[1])), x2 = Math.max(...bs.map(b => b[0] + b[2])), y2 = Math.max(...bs.map(b => b[1] + b[3])); return [x1 - 2, y1 - 2, x2 - x1 + 4, y2 - y1 + 4]; });
+  }
+  function screenTerms() {
+    const O = words.map(w => norm(w.t)), out = [];
+    for (const it of termItems) {
+      const toks = String(it.t).split(/\s+/).map(norm).filter(Boolean); if (!toks.length) continue;
+      const boxes = [];
+      for (let i = 0; i + toks.length <= O.length; i++) {
+        if (!toks.every((t, k) => same(O[i + k], t))) continue;
+        const bs = toks.map((_, k) => words[i + k].b), x1 = Math.min(...bs.map(b => b[0])), y1 = Math.min(...bs.map(b => b[1]));
+        boxes.push([x1 - 1, y1 - 1, Math.max(...bs.map(b => b[0] + b[2])) - x1 + 2, Math.max(...bs.map(b => b[1] + b[3])) - y1 + 2]);
+      }
+      if (boxes.length) out.push({ c: it.c, boxes });
+    }
+    return out;
+  }
+  function screenPlace() {                     // recompute every box from the latest screen words
+    curMap = curTokens ? align(curTokens) : null;
+    sentBoxes = curMap ? band(curMap) : [];
+    wordBoxes = curMap && curMap[curK] != null ? [words[curMap[curK]].b] : [];
+    termBoxes = screenTerms();
+    if (sentBoxes.length) lastY = sentBoxes[0][1];
+  }
+  async function readScreenNow() {
+    const wr = win.windowRect(hwndRaw); if (!wr) return false;
+    if (!region || region.win !== JSON.stringify(wr)) {         // the window moved or resized: find its document area again
+      const dr = await uia.ask({ op: 'docrect', hwnd }, 3000);
+      region = dr.ok && dr.w > 50 && dr.h > 50 ? { x: dr.x, y: dr.y, w: dr.w, h: dr.h } : { x: wr.x + 8, y: wr.y + 8, w: wr.w - 16, h: wr.h - 16 };   // no document area found: use the whole window
+      region.win = JSON.stringify(wr);
+    }
+    const r = await ocr.ask({ op: 'ocr', hwnd, x: region.x, y: region.y, w: region.w, h: region.h }, 8000);
+    if (!r.ok) { grabLog({ step: 'src-screen-read', ok: false, why: r.why }); return false; }
+    words = r.words || []; screenPlace(); return true;
+  }
+
+  // ---- watching for movement (scrolling, zooming, window moved) in either mode
+  function watch() {
+    clearInterval(timer);
+    timer = setInterval(async () => {
+      if (busy || !active) return;
+      if (!front()) { hideNow(); return; }
+      busy = true;
+      try {
+        ticks++;
+        let sig;
+        if (mode === 'program') { const p = await uia.ask({ op: 'probe' }, 1500); sig = p.ok ? p.sig : lastSig; }
+        else { const wr = win.windowRect(hwndRaw); const h = region ? await ocr.ask({ op: 'hash', hwnd, x: region.x, y: region.y, w: region.w, h: region.h }, 1500) : { ok: false }; sig = (h.ok ? h.h : lastSig) + JSON.stringify(wr); }
+        if (sig !== lastSig) {
+          lastSig = sig; still = 0;
+          if (!moving) { moving = true; movingSince = Date.now(); hideNow(); }
+          if (Date.now() - movingSince < 3000) return;    // keeps changing (e.g. a video on the page): place it anyway every few seconds
+        } else if (moving && ++still < 2) return;
+        if (!moving && ticks % (mode === 'program' ? 10 : 15)) return;
+        moving = false; movingSince = 0;
+        if (mode === 'program') { const r = await uia.ask({ op: 'refresh' }, 3000); if (r.ok) { sentBoxes = r.sent || []; wordBoxes = r.word || []; termBoxes = r.terms || []; } }
+        else await readScreenNow();
+        draw();
+      } finally { busy = false; }
+    }, mode === 'program' ? 150 : 300);
+  }
+
+  return {
+    async attach(h) {
+      const a = addr(h); if (!a) return false;
+      clearInterval(timer); hideNow();
+      mode = null; hwnd = a; hwndRaw = h; active = false; sentBoxes = []; wordBoxes = []; termBoxes = []; hasTerms = false;
+      lastSig = ''; moving = false; region = null; words = []; curTokens = null; curMap = null; curK = -1; termItems = []; lastY = null;
+      const cls = win.className(h);
+      const browser = /^(Chrome_WidgetWin_\d|MozillaWindowClass)$/.test(cls);    // Chrome, Edge, Firefox and apps built on them
+      // Text drawn by the Chrome engine (new Outlook, Teams, Slack and other web-based programs) reports wrong
+      // positions inside scrolling boxes, just like the browsers, so those use screen reading too.
+      let fw = '';
+      if (!browser) { const r = await uia.ask({ op: 'attach', hwnd: a, cls }, 6000); fw = r.framework || ''; if (r.ok && !/^chrome$/i.test(fw)) mode = 'program'; else if (!r.ok) grabLog({ step: 'program-attach-failed', why: r.why }); }
+      if (!mode) { mode = 'screen'; if (!(await readScreenNow()) || !words.length) mode = null; }
+      grabLog({ step: 'source-highlight-mode', mode: mode || 'none', browser, framework: fw, cls });
+      active = !!mode; if (active) watch();
+      return active;
+    },
+    async sentence(m) {
+      if (!active) return;
+      if (mode === 'program') {
+        const r = await uia.ask({ op: 'sentence', i: m.i, first: m.first, last: m.last, len: m.len, scroll: (store.get('settings') || {}).followScroll !== false });
+        grabLog({ step: 'src-sentence', mode, ok: r.ok, why: r.why, boxes: (r.boxes || []).length, ...(process.argv.includes('--rap-test') ? { at: r.boxes } : {}) });
+        sentBoxes = r.ok ? r.boxes || [] : []; wordBoxes = [];
+      } else {
+        curTokens = (m.words || []).map(norm); curK = -1;
+        screenPlace();
+        if (!curMap && !moving) { await readScreenNow(); }           // not on the last picture (scrolled?): read the screen again
+        grabLog({ step: 'src-sentence', mode, ok: !!curMap, boxes: sentBoxes.length, ...(process.argv.includes('--rap-test') ? { at: sentBoxes, screenWords: words.length } : {}) });
+      }
+      draw();
+    },
+    async word(m) {
+      if (!active) return;
+      if (mode === 'program') {
+        const r = await uia.ask({ op: 'word', text: m.text });
+        if (!r.ok) grabLog({ step: 'src-word', ok: false, why: r.why });
+        if (r.ok) { wordBoxes = r.boxes || []; if (r.sent) sentBoxes = r.sent; }
+        if (process.argv.includes('--rap-test')) grabLog({ step: 'src-word', mode, text: m.text, at: wordBoxes });
+      } else {
+        curK = m.k; wordBoxes = curMap && curMap[curK] != null ? [words[curMap[curK]].b] : [];
+        if (process.argv.includes('--rap-test')) grabLog({ step: 'src-word', mode, k: curK, at: wordBoxes });
+      }
+      draw();
+    },
+    async terms(m) {
+      if (!active) return;
+      if (mode === 'program') {
+        const r = await uia.ask({ op: 'terms', items: m.items }, 8000);
+        hasTerms = !!(r.ok && r.count); termBoxes = r.ok ? r.terms || [] : [];
+        grabLog({ step: 'src-terms', ok: r.ok, found: r.count || 0 });
+      } else { termItems = m.items || []; termBoxes = screenTerms(); grabLog({ step: 'src-terms', mode, found: termBoxes.reduce((n, t) => n + t.boxes.length, 0) }); }
+      draw();
+    },
+    clear(stopAll) {
+      sentBoxes = []; wordBoxes = []; curTokens = null; curMap = null; curK = -1;
+      if (stopAll) { active = false; mode = null; hwnd = null; termBoxes = []; termItems = []; words = []; clearInterval(timer); if (uia.running()) uia.ask({ op: 'detach' }); }
+      draw();
+    }
+  };
+})();
 // ------------------------------------------------------------------ automatic updates (GitHub releases of JnoAYLV/read-aloud-pro)
 // Checks 30 seconds after start and every 4 hours, downloads quietly, then asks before restarting.
 // If the person says Later, the update installs the next time the app is quit. Can be switched off in Settings.
@@ -282,7 +501,19 @@ async function handle(m, e) {
     case 'vault-test': return core.vaultTest();
     case 'vault-list': return { vaults: core.listVaults() };
     case 'update-info': return { version: app.getVersion(), auto: (store.get('settings') || {}).autoUpdate !== false, status: updateStatus };
-    case 'update-check': if (!updater) return { status: updateStatus }; try { await updater.checkForUpdates(); } catch {} return { status: updateStatus };    case 'open-manual': openManual(m.section); return { ok: true };
+    case 'update-check': if (!updater) return { status: updateStatus }; try { await updater.checkForUpdates(); } catch {} return { status: updateStatus };    // Test-only (needs the --rap-test switch): connect the in-document highlight to a window found by title,
+    // skipping the copy step, so the highlight can be tested without taking the focus from the person.
+    case 'src-test-attach': {
+      if (!process.argv.includes('--rap-test')) return { error: 'test switch not set' };
+      const koffi = require('koffi'), u32 = koffi.load('user32.dll');
+      const FindWindowW = u32.func('void* __stdcall FindWindowW(const char16_t*, const char16_t*)');
+      const h = FindWindowW(m.cls || null, m.title); if (!h) return { error: 'window not found' };
+      return { linked: await src.attach(h) };
+    }    case 'src-sentence': src.sentence(m); return { ok: true };
+    case 'src-word': src.word(m); return { ok: true };
+    case 'src-terms': src.terms(m); return { ok: true };
+    case 'src-clear': src.clear(!!m.end); return { ok: true };
+    case 'open-manual': openManual(m.section); return { ok: true };
     case 'hotkeys-get': return { keys: currentHotkeys(), labels: Object.fromEntries(Object.entries(HOTKEYS).map(([id, h]) => [id, h.label])), defaults: Object.fromEntries(Object.entries(HOTKEYS).map(([id, h]) => [id, h.def])) };
     case 'hotkeys-suspend': hotkeysSuspended = true; globalShortcut.unregisterAll(); return { ok: true };   // while the person presses keys to record a new one
     case 'hotkeys-resume': hotkeysSuspended = false; registerHotkeys(); return { ok: true };

@@ -316,4 +316,4 @@ function ocrImage(png, opts = {}) {
     });
   });
 }
-module.exports = { callClaude, saveFile, outlookDraft, ocrImage, getSettings, findClaude, vaultTest, listVaults, plainText, searchVault, keywords };
+module.exports = { SCRIPTS, callClaude, saveFile, outlookDraft, ocrImage, getSettings, findClaude, vaultTest, listVaults, plainText, searchVault, keywords };

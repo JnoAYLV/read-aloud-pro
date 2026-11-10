@@ -17,6 +17,11 @@ const SetForegroundWindow = user32.func('bool __stdcall SetForegroundWindow(void
 const GetWindowTextW = user32.func('int __stdcall GetWindowTextW(void* hWnd, _Out_ uint16_t* lpString, int nMaxCount)');
 const GetClipboardSequenceNumber = user32.func('uint32 __stdcall GetClipboardSequenceNumber()');
 const GetWindowThreadProcessId = user32.func('uint32 __stdcall GetWindowThreadProcessId(void* hWnd, _Out_ uint32_t* lpdwProcessId)');
+const GetClassNameW = user32.func('int __stdcall GetClassNameW(void* hWnd, _Out_ uint16_t* lpClassName, int nMaxCount)');
+const RECT = koffi.struct('RAP_RECT', { left: 'long', top: 'long', right: 'long', bottom: 'long' });
+const GetWindowRect = user32.func('bool __stdcall GetWindowRect(void* hWnd, _Out_ RAP_RECT* r)');
+const className = h => { const b = new Uint16Array(256); const n = GetClassNameW(h, b, 256); return Buffer.from(b.buffer).toString('utf16le', 0, n * 2); };
+const windowRect = h => { const r = {}; return GetWindowRect(h, r) ? { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top } : null; };
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const key = (vk, up) => ({ type: INPUT_KEYBOARD, u: { ki: { wVk: vk, wScan: 0, dwFlags: up ? KEYEVENTF_KEYUP : 0, time: 0, dwExtraInfo: 0 } } });
@@ -44,4 +49,4 @@ async function sendCopy() {
   send([key(VK.CONTROL), key(VK.C), key(VK.C, true), key(VK.CONTROL, true)]);
   return up;
 }
-module.exports = { foreground, sendCopy, clipboardSeq: () => GetClipboardSequenceNumber(), focus: h => h && SetForegroundWindow(h), sleep };
+module.exports = { className, windowRect, foreground, sendCopy, clipboardSeq: () => GetClipboardSequenceNumber(), focus: h => h && SetForegroundWindow(h), sleep };

@@ -49,7 +49,7 @@
   }
 
   // ---------------------------------------------------------------- text model
-  const SKIP = 'script,style,noscript,template,svg,canvas,textarea,select,option,input,iframe,[aria-hidden="true"],[data-rap-ui]';
+  const SKIP = 'script,style,noscript,template,svg,canvas,textarea,select,option,input,iframe,[aria-hidden="true"],[data-rap-ui],[data-rap-noread]';   // data-rap-noread: shown but never read (the reader's title and From line)
   const visCache = new WeakMap();
   const blockCache = new WeakMap();
   function visible(el) {
@@ -198,7 +198,8 @@
     const words = wordsOf(R.m.flat, sen);
     let wi = Math.max(0, words.findIndex(w => w.e > fromPos));
     const base = words[wi] ? Math.min(words[wi].s, Math.max(fromPos, sen.s)) : sen.s;
-    R.words = words; R.pos = base;
+    R.words = words; R.pos = base; R.srcW = null;
+    srcSentence(sen);
     const text = R.m.flat.slice(base, sen.e);
     setHL('rap-sentence', [rangeFor(R.m, sen.s, sen.e)].filter(Boolean), 1);
     markWord(base);
@@ -296,9 +297,22 @@
     a.play().catch(e => { toast('Audio blocked: click the page once, then try again.'); R.playing = false; updateStatus(); });
   }
 
+  // Desktop: also highlight inside the program the text came from (see src in main.js).
+  const srcOn = () => window.RAP_DESKTOP && window.__rapSrcLinked && R.m && (R.label === 'page' || R.label === 'selection');
+  function srcSentence(sen) {
+    R.srcLive = false;
+    if (!srcOn()) return;
+    // Only the text itself: the reader's own title and "From:" line are not in the original document.
+    const rg = rangeFor(R.m, sen.s, sen.e), el = rg && (rg.startContainer.nodeType === 1 ? rg.startContainer : rg.startContainer.parentElement);
+    if (!el || !el.closest('#doc p')) return;
+    const t = R.m.flat.slice(sen.s, sen.e).trim(), ws = t.split(/\s+/).filter(Boolean);
+    R.srcLive = ws.length > 0;
+    if (ws.length) chrome.runtime.sendMessage({ type: 'src-sentence', i: t.slice(0, 300), first: ws[0], last: ws[ws.length - 1], len: t.length, words: R.words.map(x => R.m.flat.slice(x.s, x.e)) }).catch(() => {});
+  }
   function markWord(pos) {
     const w = R.words.find(x => x.e > pos) || R.words[R.words.length - 1];
     if (!w) return;
+    if (w !== R.srcW) { R.srcW = w; if (srcOn() && R.srcLive) chrome.runtime.sendMessage({ type: 'src-word', text: R.m.flat.slice(w.s, w.e), k: R.words.indexOf(w) }).catch(() => {}); }
     R.pos = w.s;
     if (R.label !== 'answer' && R.last && R.last.m === R.m) R.last.pos = w.s;
     const r = rangeFor(R.m, w.s, w.e);
@@ -327,9 +341,9 @@
   function stopReading(silent) {
     R.playing = false; R.token++; stopTimer(); synth && synth.cancel(); stopAudio();
     setHL('rap-word', []); setHL('rap-sentence', []);
-    if (!silent) { R.m = null; updateStatus(); }
+    if (!silent) { R.m = null; updateStatus(); if (window.RAP_DESKTOP) chrome.runtime.sendMessage({ type: 'src-clear', end: true }).catch(() => {}); }
   }
-  function finishReading() { R.playing = false; setHL('rap-word', []); setHL('rap-sentence', []); R.m = null; updateStatus(); }
+  function finishReading() { R.playing = false; setHL('rap-word', []); setHL('rap-sentence', []); R.m = null; updateStatus(); if (window.RAP_DESKTOP) chrome.runtime.sendMessage({ type: 'src-clear', end: true }).catch(() => {}); }   // reading finished: clear the original completely
   function restartAtCurrent() { if (R.m && R.playing) { const i = R.sents.findIndex(s => s.e > R.pos); speakSentence(i < 0 ? R.idx : i, R.pos); } }
 
   function selectionModel() {
@@ -419,6 +433,12 @@
       setHL(hlName(c), hits[c.id].map(x => x.range), 0);
     }
     scanState.hits = hits; scanState.cursor = {}; scanState.when = new Date();
+    // Desktop: colour the same hits inside the program the text came from.
+    if (window.RAP_DESKTOP && window.__rapSrcLinked) {
+      const items = [], seen = new Set();
+      for (const c of cats()) for (const h of hits[c.id] || []) { const k = h.term.toLowerCase() + '|' + c.color; if (!seen.has(k)) { seen.add(k); items.push({ t: h.term, c: c.color }); } }
+      chrome.runtime.sendMessage({ type: 'src-terms', items }).catch(() => {});
+    }
     const total = Object.values(hits).reduce((n, l) => n + l.length, 0);
     chrome.runtime.sendMessage({ type: 'badge', text: total ? String(total) : '' }).catch(() => {});
     if (ui) renderFind();

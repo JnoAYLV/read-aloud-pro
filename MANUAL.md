@@ -13,7 +13,7 @@ It was built for operations work, where the important line in an email is easy t
 - **Nothing important slips past.** Your name and your chosen word groups (safety, controllable failures, deadlines) are coloured and counted, with a jump list.
 - **Claude understands it with you, in plain words.** Summaries and explanations are written to be heard, like an assistant briefing you, with no symbols.
 - **You stay in control of anything that leaves your hands.** The app never sends an email or posts a message. Emails open as Outlook drafts; you press Send.
-- **Everything new starts switched off.** Claude, the Obsidian vault and automatic scanning stay off until you switch them on.
+- **Anything that sends your text anywhere starts switched off.** Claude and the Obsidian vault stay off until you switch them on.
 
 The voice and speech recognition run on your own PC and cost nothing. Claude uses your own Claude Code login (your Claude plan) or an API key.
 
@@ -86,6 +86,8 @@ The **Read highlighted** button in the panel works like Ctrl+Alt+R: if nothing i
 - **Speed** runs from 0.5x to 3x. Most people take in work email well at 1.2x to 1.5x.
 - **Scroll to follow along** keeps the spoken line on screen in long documents.
 
+**Highlighting in the original.** When you read with Ctrl+Alt+R, the sentence (soft yellow band) and the word (bright box) are also highlighted right on top of the original email, document or web page, and it scrolls to keep up. Your name and word groups are coloured there too, in the same colours as in the reader. Nothing in your document is changed. The reader stays in the background so the original stays in front, and the highlight only shows while that program is in front. It works in programs that share word positions with Windows, such as Outlook, Word, Edge, Chrome and Notepad. How it finds the words: in Word (through Word's own automation), classic Outlook, Notepad and other desktop programs it asks the program where each word is (instant and exact, and the document scrolls along with the voice). In Chrome, Edge and other browsers, the new Outlook, Teams, web email, PDF readers and anything else, it reads the window with Windows' own text recognition and lines those words up with what is being spoken, because browsers report wrong positions inside scrolling boxes. There you scroll yourself: the highlight hides while the page moves and is placed again a moment after it stops. Very small or faint text may be missed; the reader always highlights every word. When reading finishes or you stop, the highlight in the original clears completely. Switch it off in **⚙ → Reading & notes**.
+
 **Voices.** The natural voices (Kokoro) are free, run on your PC and keep everything private. Pick one in the panel or in Settings. The highlight is timed against each spoken sentence, so it can be a word ahead or behind inside a sentence, but it never drifts across sentences. The Windows voices sound robotic but highlight each word exactly; use them if exact word tracking matters more than sound.
 
 **Speaker.** **⚙ → Reading & notes → Speaker** sends the natural voice to a chosen speaker or headset, so you can listen privately while calls use your main speaker.
@@ -112,7 +114,7 @@ The Find tab colours every mention of your name and your chosen word groups, cou
 - **Colours** start as defaults; click a colour to change it. Keep safety a colour you will never ignore.
 - **Profiles** are saved sets of groups for different jobs, for example *Email triage* and *Safety audit*. Use **New**, **Duplicate**, **Rename** and **Delete**, then switch profiles from the Find tab. A new profile keeps your name.
 - **Your name** can also be changed directly in the Find tab.
-- **Scan every page automatically** is off by default. Turn it on if you want every new text coloured as soon as it loads.
+- **Scan every page automatically** is on by default: every new text is coloured and counted as soon as it loads. Turn it off if you prefer to click **Scan this page** yourself.
 
 Click **Save** after changing groups or profiles.
 
@@ -238,11 +240,12 @@ Click **Save shortcut keys** and the new keys work at once. **Back to the defaul
 | Tab | Setting | What it is for |
 | --- | --- | --- |
 | Highlighting | Profiles, word groups, terms, colours, your name | What the Find tab looks for |
-| Highlighting | Scan every page automatically | Colour every new text as it loads (off by default) |
+| Highlighting | Scan every page automatically | Colour every new text as it loads (on by default) |
 | Reading & notes | Voice | Natural voices on this PC (recommended) or Windows voices |
 | Reading & notes | Microphone | Which mic voice commands listen to, with a 3-second level test |
 | Reading & notes | Speaker | Which speaker or headset the natural voice plays on |
 | Reading & notes | Reading | Alt+click to start reading; scroll to follow the voice |
+| Reading & notes | Highlight inside the program | Also highlight the spoken sentence and word on top of the original email or document (on by default) |
 | Reading & notes | Shortcut keys | Change the key for each action, with warnings about keys already in use |
 | Reading & notes | Updates | Shows your version. Updates install automatically by default: the app downloads a new version in the background and asks before restarting (or installs it the next time you quit). Untick to stop; **Check now** checks on demand |
 | Reading & notes | Where saved files go | A folder in Downloads, or any folder such as Google Drive or OneDrive (files saved there upload on their own). **Test save** checks it |
@@ -310,6 +313,7 @@ Most problems come from the wrong window being in front, Claude being off, or th
 | A shortcut does nothing | Check the yellow tray icon is there. Shortcuts do not work while the PC is locked or a remote session is disconnected. A startup message names any key another program has taken |
 | The first read takes a minute | The voice is downloading or loading. Later reads start in about 1 to 2 seconds |
 | Reading stops partway | Press ⏯ or Alt+click the next word to carry on. This was seen once and is being investigated; note what you were reading and report it |
+| No highlight in the original program | Keep the program in front while it reads (the highlight hides when another window is in front), and keep the text highlighted there. Some programs do not share word positions; then the highlight shows in the reader only |
 | Read screen gives jumbled words | Pick the single window rather than the whole screen, and make the text larger. Text recognition reads what is shown, so small or stylised fonts misread |
 | Voice commands hear nothing | **⚙ → Reading & notes → Microphone**: pick your real mic and run the 3-second test |
 | "Claude is off" | Claude tab → **Turn on: use my Claude Code login** |

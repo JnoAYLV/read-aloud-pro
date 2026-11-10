@@ -2,18 +2,20 @@
 (() => {
   const doc = document.getElementById('doc');
   const status = t => { const s = document.getElementById('status'); s.textContent = t; s.style.display = t ? 'block' : 'none'; clearTimeout(status.t); if (t) status.t = setTimeout(() => s.style.display = 'none', 5000); };
-  function show({ title, text, from, autoRead }) {
-    __rap.stopReading();
+  function show({ title, text, from, autoRead, linked }) {
+    __rap.stopReading(true);                                                // silent: loading new text is not 'stop' (that would disconnect the original)
+    window.__rapSrcLinked = !!linked;                                         // highlight inside the original program too
+    if (!linked) window.rapBridge.send({ type: 'src-clear', end: true });
     doc.replaceChildren();
-    const h = document.createElement('h1'); h.textContent = title || 'Untitled'; doc.appendChild(h);
-    if (from) { const s = document.createElement('div'); s.className = 'src'; s.textContent = 'From: ' + from; doc.appendChild(s); }
+    const h = document.createElement('h1'); h.textContent = title || 'Untitled'; h.dataset.rapNoread = '1'; doc.appendChild(h);
+    if (from) { const s = document.createElement('div'); s.className = 'src'; s.dataset.rapNoread = '1'; s.textContent = 'From: ' + from; doc.appendChild(s); }
     for (const para of String(text).replace(/\r/g, '').split(/\n\s*\n|\n/)) {
       if (!para.trim()) continue;
       const p = document.createElement('p'); p.textContent = para.trim(); doc.appendChild(p);
     }
     document.title = (title || 'Untitled') + ' – Read Aloud Pro';
     window.scrollTo(0, 0);
-    if (__rap.scanState.hits || __rap.settings().autoScan) __rap.scan();
+    if (linked || __rap.scanState.hits || __rap.settings().autoScan) __rap.scan();   // your name and word groups, also coloured in the original
     if (autoRead) __rap.readPage();
   }
   window.rapBridge.onLoadText(show);

@@ -42,7 +42,7 @@ self.RAP_DEFAULTS = {
   speakerLabel: '',                   // output device for ElevenLabs audio ('' = Windows default)
   followScroll: true,
   clickToRead: true,
-  autoScan: false,
+  autoScan: true,
   saveFolder: 'Read Aloud Notes',     // used when saveTarget is 'downloads'
   saveTarget: 'downloads',            // 'downloads' | 'folder' (any folder, e.g. Google Drive; needs the helper)
   savePath: '',
