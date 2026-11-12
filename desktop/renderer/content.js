@@ -630,10 +630,13 @@
       save({ profiles: { ...S.profiles, [p.id]: p } }).then(() => scanState.hits && scan());
     };
     for (const id of ['addsel', 'addpage', 'addpaste']) $(id).onmousedown = e => e.preventDefault();   // keep the page selection
-    $('addsel').onclick = () => {
+    $('addsel').onclick = async () => {
       const t = getSelection().toString().trim();
-      if (!t) { toast('Highlight some text on the page first.'); return; }
-      addSource({ title: document.title, url: location.href, text: t, kind: 'highlighted' });
+      if (t) return addSource({ title: document.title, url: location.href, text: t, kind: 'highlighted' });
+      // Desktop: nothing highlighted in the reader, so take what is highlighted in the program used just before.
+      const g = window.RAP_DESKTOP ? await grabFromOtherProgram() : null;
+      if (g && g.text.trim()) return addSource({ title: g.title, url: '', text: g.text, kind: 'highlighted' });
+      toast('Highlight some text first: here in the reader, or in Outlook, Word or a web page just before clicking this.');
     };
     $('addpage').onclick = () => addSource({ title: document.title, url: location.href, text: buildModel(pageRoot()).flat, kind: 'page' });
     $('addpaste').onclick = () => { $('pastebox').hidden = false; $('pastetxt').focus(); };
@@ -826,6 +829,11 @@
     return new Date(t).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
   }
   // Runs a Claude task. opts: { text (force this text), extra (request), format, speak (read the answer aloud) }
+  // Desktop: the text highlighted in the program used just before (Outlook, Word, a web page...), or null.
+  async function grabFromOtherProgram() {
+    const g = await chrome.runtime.sendMessage({ type: 'grab-text' }).catch(() => null);
+    return g && !g.inApp && !g.error && g.text && g.text.trim() ? g : null;
+  }
   async function runClaude(task, opts = {}) {
     if (typeof opts === 'string') opts = { text: opts };
     showPanel(); setTab('ai');
@@ -836,9 +844,15 @@
     const older = opts.text ? [] : mem.filter(c => !inUse(c) && !sameDay(c.added, Date.now())).slice(0, 40).map(({ title, added }) => ({ title, added }));
     let note = `${sources.length} memory item${sources.length === 1 ? '' : 's'}`;
     if (!sources.length) {
+      // Nothing in memory for today: use, in this order, text highlighted in the reader, text highlighted in
+      // the program used just before (desktop), or whatever is loaded in the reader.
       const sel = getSelection().toString().trim();
-      sources = [{ title: document.title, url: location.href, text: sel || buildModel(pageRoot()).flat, added: Date.now() }];
-      note = sel ? 'the highlighted text' : 'this page';
+      const other = !sel && window.RAP_DESKTOP ? await grabFromOtherProgram() : null;
+      const page = buildModel(pageRoot()).flat.trim();
+      if (sel) { sources = [{ title: document.title, url: location.href, text: sel, added: Date.now() }]; note = 'the text highlighted in the reader'; }
+      else if (other) { sources = [{ title: other.title, url: '', text: other.text, added: Date.now() }]; note = 'the text highlighted in ' + (other.title || 'the other program'); if (task === 'research' && !opts.focus) opts = { ...opts, focus: other.text.slice(0, 2000) }; }
+      else if (page && !/^Welcome to Read Aloud Pro/.test(document.querySelector('#doc h1')?.textContent || '')) { sources = [{ title: document.title, url: location.href, text: page, added: Date.now() }]; note = 'the text in the reader'; }
+      else { ui.$('aistat').textContent = 'Nothing to work from yet. Highlight text in Outlook, Word or a web page, then click the button. Or add items to memory first (+ Highlighted, Ctrl+Alt+M).'; return null; }
     }
     const format = opts.format || ui.$('fmt').value || 'auto';
     const extra = opts.extra ?? ui.$('extra').value;
@@ -848,7 +862,7 @@
     if (task === 'research') {
       focus = opts.focus ?? getSelection().toString().trim();
       if (!focus && !String(opts.extra ?? ui.$('extra').value).trim()) { ui.$('aistat').textContent = 'Highlight the part you want explained (or type a question in the box), then press Research.'; return null; }
-      if (focus && note === 'the highlighted text') { sources = [{ title: document.title, url: location.href, text: buildModel(pageRoot()).flat, added: Date.now() }]; note = 'this page'; }
+      if (focus && note === 'the text highlighted in the reader') { sources = [{ title: document.title, url: location.href, text: buildModel(pageRoot()).flat, added: Date.now() }]; note = 'this page'; }
       note += focus ? ' plus the highlighted text' : '';
     }
     ui.$('aistat').textContent = `Asking Claude (${S.claudeMode === 'code' ? 'Claude Code' : 'API'}) using ${note}…`;

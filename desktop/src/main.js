@@ -474,6 +474,12 @@ function openManual(section) {
 async function handle(m, e) {
   switch (m.type) {
     case 'read-from-app': readFromApp(); return { ok: true };
+    case 'grab-text': {                     // panel buttons: the text highlighted in the program used just before
+      let g; try { g = await grabSelection(); } catch (err) { return { error: err.message } }
+      if (g.inApp) return { inApp: true };
+      grabLog({ step: 'grab-for-panel', chars: (g.text || '').length });
+      return { text: g.text || '', title: cleanTitle(g.title), from: g.title };
+    }
     case 'claude': return core.callClaude(m);
     case 'save': {
       const file = core.saveFile(m, app.getPath('downloads'));
