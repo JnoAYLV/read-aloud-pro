@@ -1,6 +1,6 @@
 {
   "name": "read-aloud-pro",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Reads text from any program aloud with word highlighting, finds key words, and writes emails and documents with Claude.",
   "main": "src/main.js",
   "scripts": {

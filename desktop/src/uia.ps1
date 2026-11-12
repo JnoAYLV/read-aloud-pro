@@ -248,6 +248,62 @@ function WordRefresh {
   $wb = if ($state.wword) { WBox $state.wword } else { $null }
   @{ ok = $true; sent = $(if ($state.wsent) { WLines $state.wsent } else { @() }); word = $(if ($wb) { ,@(,$wb) } else { @() }); terms = $t.terms }
 }
+# ---------------------------------------------------------------- Claude Watch: the Claude desktop app
+# Reads (never changes) the Claude app's page text, the text in its message box, and, where the chat marks
+# Claude's replies, the latest marked reply. The app decides what is new; this only reports what is there.
+$cw = @{ hwnd = 0; doc = $null; tp = $null; composer = $null; markersAt = 0; marker = $null }
+function ClaudeFind {
+  $p = Get-Process -Name Claude -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 -and $_.Path -notmatch '\\\.local\\bin\\' } | Select-Object -First 1
+  if (-not $p) { $cw.hwnd = 0; $cw.doc = $null; return $false }
+  if ($cw.doc -and $cw.hwnd -eq [long]$p.MainWindowHandle) { return $true }
+  $root = $AE::FromHandle($p.MainWindowHandle)
+  $docs = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Document)))
+  if ($docs.Count -eq 0) { return $false }                       # the app switches its accessibility on lazily: try again next time
+  $best = $null; $bestN = -1
+  foreach ($d in $docs) { $n = $d.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition).Count; if ($n -gt $bestN) { $bestN = $n; $best = $d } }
+  $pat = $null; if (-not $best.TryGetCurrentPattern($TP::Pattern, [ref]$pat)) { return $false }
+  $cw.hwnd = [long]$p.MainWindowHandle; $cw.doc = $best; $cw.tp = $pat; $cw.composer = $null; $cw.markersAt = 0
+  $true
+}
+function ClaudeRead {
+  try {
+    if (-not (ClaudeFind)) { return @{ ok = $false; why = 'Claude window not found' } }
+    $text = $cw.tp.DocumentRange.GetText(-1)
+    # The message box (where the person types or dictates), found once and re-found if it goes away.
+    $comp = ''
+    if (-not $cw.composer) { foreach ($e in $cw.doc.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) { if ($e.Current.ClassName -match '(^|\s)ProseMirror(\s|$)') { $cw.composer = $e; break } } }
+    $compAt = -1
+    if ($cw.composer) {
+      try {
+        $cr = $cw.tp.RangeFromChild($cw.composer); $comp = $cr.GetText(20000)
+        # Where the message box starts in the page text: replies appear before it; menus and pop-ups after it.
+        $pre = $cw.tp.DocumentRange.Clone(); $pre.MoveEndpointByRange($EP::End, $cr, $EP::Start); $compAt = $pre.GetText(-1).Length
+      } catch { $cw.composer = $null }
+    }
+    # Claude chat marks replies (font-claude-response / font-claude-message). Look for them every 10 s.
+    $last = $null
+    if ([Environment]::TickCount - $cw.markersAt -gt 10000) {
+      $cw.markersAt = [Environment]::TickCount; $cw.marker = $null
+      foreach ($e in $cw.doc.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) { if ($e.Current.ClassName -match '(^|\s)font-claude-(response|message)(\s|$)') { $cw.marker = $true; break } }
+    }
+    if ($cw.marker) {
+      $els = $cw.doc.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.ClassName -match '(^|\s)font-claude-(response|message)(\s|$)' }
+      $l = @($els)[-1]; if ($l) { try { $last = $cw.tp.RangeFromChild($l).GetText(200000) } catch {} }
+    }
+    @{ ok = $true; text = $text; composer = $comp; compAt = $compAt; last = $last }
+  } catch { $cw.doc = $null; @{ ok = $false; why = ($_.Exception.Message -split "`n")[0] } }
+}
+# The names of the buttons in the conversation. The grey step lines in a reply ("Searched code, ran 3 commands…")
+# are buttons, so the app can leave their text out. Asked only when a reply is about to be read.
+function ClaudeButtons {
+  try {
+    if (-not (ClaudeFind)) { return @{ ok = $false; why = 'Claude window not found' } }
+    $cond = New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+    $names = New-Object System.Collections.Generic.HashSet[string]
+    foreach ($b in $cw.doc.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond)) { $n = $b.Current.Name; if ($n -and $n.Trim().Length -gt 0) { [void]$names.Add($n.Trim()) } }
+    @{ ok = $true; names = @($names) }
+  } catch { $cw.doc = $null; @{ ok = $false; why = ($_.Exception.Message -split "`n")[0] } }
+}
 Reply @{ ok = $true; ready = $true }
 while ($true) {
   $line = [Console]::In.ReadLine(); if ($null -eq $line) { break }
@@ -261,6 +317,8 @@ while ($true) {
       'termboxes' { Reply (Retry { TermBoxes }) }
       'probe'    { if ($state.kind -eq 'word') { Reply (WordProbe) } else { Reply (Retry { Probe }) } }
       'docrect'  { Reply (DocRect $m.hwnd) }
+      'claude'   { Reply (ClaudeRead) }
+      'claudebuttons' { Reply (ClaudeButtons) }
       'refresh'  { if ($state.kind -eq 'word') { Reply (WordRefresh) } else { Reply (Retry { Refresh }) } }
       'detach'   { $state.sel = $null; $state.sent = $null; $state.cache = @{}; $state.terms = $null; Reply @{ ok = $true } }
       default    { Reply @{ ok = $false; why = 'unknown op' } }

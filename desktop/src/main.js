@@ -32,7 +32,16 @@ function createReader(show = true) {
   reader.setMenuBarVisibility(false);
   reader.loadFile(path.join(RENDERER, 'index.html'));
   reader.on('close', e => { if (!app.isQuitting) { e.preventDefault(); reader.hide(); } });
+  reader.on('show', watchBadge);                 // Windows forgets the dot when the window is hidden and shown again
+  reader.once('ready-to-show', watchBadge);
   return reader;
+}
+// Same green dot on the app's taskbar button while Claude Watch is on. Windows can only show it while the
+// reader window is open or minimised; when it is closed to the tray there is no button to put it on.
+function watchBadge() {
+  if (!reader || reader.isDestroyed()) return;
+  const on = typeof watch !== 'undefined' && watch.on();
+  reader.setOverlayIcon(on ? nativeImage.createFromPath(path.join(RENDERER, 'icons', 'dot-watch.png')) : null, on ? 'Claude Watch is on' : '');
 }
 function openSettings(section) {
   if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.show(); settingsWin.focus(); return; }
@@ -314,6 +323,7 @@ const src = (() => {
   }
 
   return {
+    uiaAsk: (o, ms) => uia.ask(o, ms),
     async attach(h) {
       const a = addr(h); if (!a) return false;
       clearInterval(timer); hideNow();
@@ -373,6 +383,123 @@ const src = (() => {
     }
   };
 })();
+// ------------------------------------------------------------------ Claude Watch (off unless switched on)
+// Watches the Claude desktop app and reads each new reply aloud once it has finished arriving, so a person
+// can dictate a message and hear the answer without highlighting anything. Never touches the clipboard.
+//  - Every second: the Claude page's text and its message box (uia.ps1 'claude').
+//  - What is new = the text inserted near the end since the last reply was read. The person's own message
+//    is recognised because it was just in the message box, and is removed.
+//  - When the new text has stayed the same for 2 seconds, it is read once; the same reply is never read twice.
+//  - Big changes away from the end (scrolling through old messages, switching conversation) are ignored.
+const watch = (() => {
+  let timer = null, busy = false, pending = '', changedAt = 0, lastSpoken = '', lastMarked = null, prevComp = '', anchor = '', spokenLen = 0, anchorOcc = -1;
+  const squash = t => String(t || '').replace(/\s+/g, ' ').trim();
+  // Lines that are buttons, labels and times around a message (Claude chat and Claude Code views), not the reply.
+  const CHROME = /^(copy|retry|edit|edited|share|like|dislike|thumbs (up|down)|regenerate|stop|thinking…?|claude can make mistakes.*|rewind to here|fork from here|pin as chapter|read aloud|read by claude|running|chat mode|just now|\d+\s*(s|sec|secs|seconds?|m|mins?|minutes?|h|hrs?|hours?|days?)( ago)?|.{0,3}|\u{FFFC}.*)$/iu;
+  // Where the reply ends: a finished reply in Claude Code gets its own button row; other views end at a side panel.
+  const DONE_ROW = /^(pin as chapter|read aloud)$/i;
+  const PANEL = /^(environment|context|connectors|outputs|background tasks|reorder .+|artifacts|files|tasks)$/i;
+  const CODE_VIEW = /^(fork from here|rewind to here|show message actions for .*)$/im;
+  const LABEL = /^(claude responded:|you said:|show message actions for )/i;   // screen-reader summaries of a message
+  // Drop lines that are a button's text: the grey step lines in a reply ("Searched code, ran 3 commands, edited main.js +10")
+  // are buttons, and the page splits one button's text over several lines.
+  let buttons = [];
+  function dropButtons(lines, names) {
+    if (!names.length) return lines;
+    const set = new Set(names.map(squash)), out = [];
+    for (let k = 0; k < lines.length; k++) {
+      let joined = '', hit = -1;
+      for (let j = k; j < Math.min(lines.length, k + 8); j++) {
+        joined = squash(joined + ' ' + lines[j]);
+        if (set.has(joined)) { hit = j; break; }
+        if (![...set].some(n => n.startsWith(joined))) break;
+      }
+      if (hit >= 0) k = hit; else out.push(lines[k]);
+    }
+    return out;
+  }
+  // Drop screen-reader labels and step headers (a step's name is shown twice, or as two lines then joined).
+  function tidy(lines) {
+    const out = [];
+    for (let k = 0; k < lines.length; k++) {
+      const l = lines[k];
+      if (LABEL.test(l)) continue;
+      if (lines[k + 1] === l) { k++; continue; }
+      if (lines[k + 2] === l + ' ' + lines[k + 1]) { k += 2; continue; }
+      out.push(l);
+    }
+    return out;
+  }
+  const clean = t => String(t).split(/\r?\n/).map(l => l.trim()).filter(l => l && !CHROME.test(l)).join('\n').trim();
+  function inserted(prev, cur) {                // the part of cur that is new compared with prev
+    let p = 0; const max = Math.min(prev.length, cur.length);
+    while (p < max && prev.charCodeAt(p) === cur.charCodeAt(p)) p++;
+    let s = 0; while (s < max - p && prev.charCodeAt(prev.length - 1 - s) === cur.charCodeAt(cur.length - 1 - s)) s++;
+    return { added: cur.slice(p, cur.length - s), removed: prev.length - p - s, tail: s, at: p };
+  }
+  function speak(text) {
+    lastSpoken = squash(text);
+    grabLog({ step: 'claude-watch-read', chars: text.length });
+    toReaderQuiet('load-text', { title: 'Claude reply', text, from: 'Claude', autoRead: true });
+  }
+  async function tick() {
+    if (busy) return; busy = true;
+    try {
+      const r = await src.uiaAsk({ op: 'claude' }, 4000);
+      if (!r.ok) return;                                       // Claude not open or not ready: keep polling quietly
+      const comp = squash(r.composer);
+      if (r.last != null) {                                    // chat that marks Claude's replies: use the latest marked reply
+        const t = clean(r.last), key = squash(t);
+        if (lastMarked === null) { lastMarked = key; lastSpoken = key; return; }   // what was already there when Watch started
+        if (key !== lastMarked) { lastMarked = key; changedAt = Date.now(); return; }
+        if (key && key !== lastSpoken && Date.now() - changedAt >= 2000) speak(t);
+        return;
+      }
+      // Anchor on the person's own message: when the message box empties, what was in it has been sent.
+      // The reply is the text between that message (as shown in the conversation) and the message box.
+      if (comp.length <= 1 && prevComp.length > 1) { anchor = prevComp; spokenLen = 0; pending = ''; anchorOcc = -1; grabLog({ step: 'claude-watch-sent', chars: anchor.length }); }
+      prevComp = comp;
+      if (!anchor || r.compAt < 0) return;
+      const cur = (r.text || '').slice(0, r.compAt);
+      const words = anchor.split(' ').slice(-12).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      const re = new RegExp(words.join('\\s+'), 'g'), ends = []; let mt;
+      while ((mt = re.exec(cur))) ends.push(mt.index + mt[0].length);
+      if (!ends.length) return;                                // the message is not shown yet
+      // Remember which occurrence is the person's message (the last one when it first appears), so the same
+      // words turning up inside the reply later do not move the starting point.
+      if (anchorOcc < 0) anchorOcc = ends.length - 1;
+      const end = ends[Math.min(anchorOcc, ends.length - 1)];
+      const L = cur.slice(end).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      let body;
+      if (CODE_VIEW.test(r.text || '')) {
+        // Claude Code view: a reply is finished when its own button row appears under it. Until then, wait.
+        const d = L.findIndex(l => DONE_ROW.test(l)); if (d < 0) return;
+        body = L.slice(0, d); while (body.length && CHROME.test(body[body.length - 1])) body.pop();
+        // Read the answer after the last tool step (each step shows as an object mark), not the work in between.
+        let o = -1; body.forEach((l, k) => { if (/^￼/.test(l)) o = k; });
+        body = tidy(body.slice(o + 1));
+      } else { const p = L.findIndex(l => PANEL.test(l)); body = tidy(p >= 0 ? L.slice(0, p) : L); }
+      const raw = squash(body.join('\n'));
+      if (raw !== pending) {                                   // still changing: note when, and which lines are buttons now
+        pending = raw; changedAt = Date.now();
+        try { const b = await src.uiaAsk({ op: 'claudebuttons' }, 4000); buttons = b && b.ok ? b.names || [] : []; } catch { buttons = []; }
+        return;
+      }
+      const reply = clean(dropButtons(body, buttons).join('\n')), flat = squash(reply);
+      if (flat.length > spokenLen + 2 && Date.now() - changedAt >= 2000) {
+        // Read only what has not been read yet (Claude can pause mid-reply and carry on).
+        const fresh = spokenLen ? flat.slice(spokenLen) : reply;
+        spokenLen = flat.length;
+        if (squash(fresh) !== lastSpoken) speak(fresh);
+      }    } catch (e) { /* stay quiet and keep polling */ } finally { busy = false; }
+  }
+  return {
+    on: () => !!timer,
+    start() { if (timer) return; pending = ''; lastMarked = null; lastSpoken = ''; prevComp = ''; anchor = ''; spokenLen = 0; timer = setInterval(tick, 1000); grabLog({ step: 'claude-watch', on: true }); buildTrayMenu(); },
+    stop() { if (!timer) return; clearInterval(timer); timer = null; grabLog({ step: 'claude-watch', on: false }); buildTrayMenu(); },
+    sync() { ((store.get('settings') || {}).claudeWatch ? this.start : this.stop).call(this); }
+  };
+})();
 // ------------------------------------------------------------------ automatic updates (GitHub releases of JnoAYLV/read-aloud-pro)
 // Checks 30 seconds after start and every 4 hours, downloads quietly, then asks before restarting.
 // If the person says Later, the update installs the next time the app is quit. Can be switched off in Settings.
@@ -402,9 +529,11 @@ const HOTKEYS = {
   screen: { label: 'Read the window in front',         def: 'Control+Alt+O',     run: () => readScreen() },
   voice:  { label: 'Push-to-talk (voice command)',     def: 'Control+Alt+V',     run: () => toReader('command', { type: 'voice' }) },
   pause:  { label: 'Pause / resume',                   def: 'Control+Alt+Space', run: () => toReader('command', { type: 'pause-resume' }) },
-  stop:   { label: 'Stop reading',                     def: 'Control+Alt+S',     run: () => toReader('command', { type: 'stop' }) }
+  stop:   { label: 'Stop reading',                     def: 'Control+Alt+S',     run: () => toReader('command', { type: 'stop' }) },
+  watch:  { label: 'Claude Watch on/off',              def: 'Control+Alt+W',     run: () => toggleWatch() }
 };
 let hotkeysSuspended = false;
+function toggleWatch() { const st = store.get('settings') || {}; store.set({ settings: { ...st, claudeWatch: !st.claudeWatch } }); watch.sync(); notify(watch.on() ? 'Claude Watch is on: new Claude replies will be read aloud.' : 'Claude Watch is off.'); }
 const currentHotkeys = () => { const saved = (store.get('settings') || {}).hotkeys || {}; return Object.fromEntries(Object.keys(HOTKEYS).map(id => [id, saved[id] ?? HOTKEYS[id].def])); };
 const prettyKey = a => String(a || '').replace(/Control/g, 'Ctrl').replace(/Super/g, 'Win').replace(/CommandOrControl/g, 'Ctrl');
 function registerHotkeys() {
@@ -453,10 +582,14 @@ function checkHotkey({ id, accel, all }) {
 }
 function buildTrayMenu() {
   const k = currentHotkeys();
+  // Tray indicator: a green dot on the icon and a note in the tooltip while Claude Watch is on.
+  if (tray) { const on = typeof watch !== 'undefined' && watch.on(); tray.setImage(nativeImage.createFromPath(on ? path.join(RENDERER, 'icons', 'icon-watch.png') : ICON).resize({ width: 16, height: 16 })); tray.setToolTip(on ? 'Read Aloud Pro – Claude Watch is on' : 'Read Aloud Pro'); }
+  watchBadge();
   tray?.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show reader', click: () => createReader(true) },
     { label: `Read highlighted text  (${prettyKey(k.read) || 'no key'})`, click: () => setTimeout(readFromApp, 200) },
     { label: `Read the screen  (${prettyKey(k.screen) || 'no key'})`, click: () => setTimeout(readScreen, 300) },
+    { label: 'Claude Watch (read new Claude replies aloud)' + (k.watch ? `  (${prettyKey(k.watch)})` : ''), type: 'checkbox', checked: watch.on(), click: () => toggleWatch() },
     { label: 'Manual', click: () => openManual() },
     { label: 'Settings', click: () => openSettings() },
     { type: 'separator' },
@@ -567,12 +700,14 @@ app.whenReady().then(() => {
   ipcMain.handle('store:remove', (e, k) => { store.remove(k); return true; });
   ipcMain.handle('msg', async (e, m) => { try { return await handle(m, e); } catch (err) { return { error: err.message || String(err) }; } });
   store.onChanged(ch => BrowserWindow.getAllWindows().forEach(w => !w.isDestroyed() && w.webContents.send('store:changed', ch)));
+  store.onChanged(ch => { if (ch && ch.settings) watch.sync(); });
 
   const failed = registerHotkeys();
   tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
   tray.setToolTip('Read Aloud Pro');
   buildTrayMenu();  tray.on('click', () => createReader(true));
   createReader(!process.argv.includes('--hidden'));
+  watch.sync();                                          // Claude Watch stays as the person left it (off by default)
   setupUpdates();
   startWorker(); ai('warm').catch(() => {});          // load the voice in the background so the first read is quick
   if (failed.length) notify('These shortcut keys are taken by another program: ' + failed.join(', ') + '. Change them in Settings → Reading & notes → Shortcut keys.');

@@ -144,6 +144,16 @@
       fs0.after(lab);
       cb.onchange = () => RAP_setSettings({ sourceHighlight: cb.checked });
       self.RAP_info?.(lab, 'When you read with Ctrl+Alt+R, the sentence and word being spoken are also highlighted right on top of the original email, document or web page, and it scrolls to follow. Nothing in your document is changed or selected. It shows only while that program is in front, and the reader stays in the background. Works in programs that share word positions with Windows (Outlook, Word, Edge, Chrome, Notepad); elsewhere the highlight stays in the reader.', MM.reading, openMan);
+    } }  // Claude Watch (off by default): read new replies from the Claude desktop app aloud.
+  { const anchor = document.getElementById('sourceHighlight')?.closest('label') || document.getElementById('followScroll')?.closest('label');
+    if (anchor) {
+      const lab = document.createElement('label'); lab.className = 'chk';
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.id = 'claudeWatch'; cb.checked = !!s.claudeWatch;
+      lab.append(cb, ' Claude Watch: read each new reply in the Claude desktop app aloud (Ctrl+Alt+W)');
+      anchor.after(lab);
+      cb.onchange = () => RAP_setSettings({ claudeWatch: cb.checked });
+      chrome.storage.onChanged.addListener(ch => { if (ch.settings && ch.settings.newValue) cb.checked = !!ch.settings.newValue.claudeWatch; });
+      self.RAP_info?.(lab, 'When on, Read Aloud Pro watches the Claude desktop app. Each time Claude finishes a reply (no change for 2 seconds), the reply is read aloud in your chosen voice, once. Your own messages are not read, and replies already on screen when you switch it on are not read. It never touches your clipboard. Switch it on and off here, with Ctrl+Alt+W (changeable under Shortcut keys), or from the tray menu; a green dot on the tray icon, and on the taskbar button while this window is open, shows it is on. If Claude is not open, it simply waits.', MM.reading, openMan);
     } }  // Updates: version, automatic on/off, check now. New versions come from the app's GitHub releases.
   const ui0 = await chrome.runtime.sendMessage({ type: 'update-info' });
   if (ui0?.version) {

@@ -92,6 +92,12 @@ The **Read highlighted** button in the panel works like Ctrl+Alt+R: if nothing i
 
 **Speaker.** **⚙ → Reading & notes → Speaker** sends the natural voice to a chosen speaker or headset, so you can listen privately while calls use your main speaker.
 
+**Claude Watch (hands-free replies).** For talking to the Claude desktop app: dictate your message, and when Claude's reply has finished arriving (no change for 2 seconds) it is read aloud in your chosen voice, once, with no highlighting or keys needed. Your own messages are not read, and replies already on screen when you switch it on are not read. It never touches your clipboard.
+
+- **Switch it on and off:** **⚙ → Reading & notes → Claude Watch**, the shortcut **Ctrl+Alt+W** (change it under Shortcut keys), or the tray menu. It is off by default.
+- **While it is on:** a green dot shows on the tray icon (by the clock, possibly behind the ^ arrow) and its tooltip says "Claude Watch is on". The same dot shows on the app's taskbar button while the reader window is open or minimised. When the window is closed to the tray there is no taskbar button, so look at the tray icon.
+- **If Claude is not open:** it waits quietly and starts reading once Claude is open.
+- **Good to know:** text in the reply such as button labels ("Copy", "Retry") is skipped. Very long replies are read in full; press Ctrl+Alt+S to stop.
 ## Find: your name and the words that matter
 
 The Find tab colours every mention of your name and your chosen word groups, counts them, and lets you jump to each one. Its purpose is that you never miss the line that is about you, about safety, or about something you own.
@@ -225,6 +231,7 @@ The shortcuts work in every program while the app is in the tray.
 | Ctrl+Alt+V | Push-to-talk for a voice command |
 | Ctrl+Alt+Space | Pause or resume |
 | Ctrl+Alt+S | Stop |
+| Ctrl+Alt+W | Claude Watch on/off |
 | Esc | Stop (in the reader) |
 | Alt+click a word | Start reading there (in the reader) |
 
@@ -245,6 +252,7 @@ Click **Save shortcut keys** and the new keys work at once. **Back to the defaul
 | Reading & notes | Microphone | Which mic voice commands listen to, with a 3-second level test |
 | Reading & notes | Speaker | Which speaker or headset the natural voice plays on |
 | Reading & notes | Reading | Alt+click to start reading; scroll to follow the voice |
+| Reading & notes | Claude Watch | Read each new Claude desktop reply aloud (off by default; Ctrl+Alt+W) |
 | Reading & notes | Highlight inside the program | Also highlight the spoken sentence and word on top of the original email or document (on by default) |
 | Reading & notes | Shortcut keys | Change the key for each action, with warnings about keys already in use |
 | Reading & notes | Updates | Shows your version. Updates install automatically by default: the app downloads a new version in the background and asks before restarting (or installs it the next time you quit). Untick to stop; **Check now** checks on demand |
